@@ -154,7 +154,7 @@ cfg_load_subport(struct rte_cfgfile *cfg, struct rte_sched_subport_params *subpo
 
 #ifdef RTE_SCHED_RED
 	char sec_name[CFG_NAME_LEN];
-	struct rte_red_params red_params[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
+//	struct rte_pie_config red_params[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
 
 	snprintf(sec_name, sizeof(sec_name), "red");
 
@@ -165,64 +165,64 @@ cfg_load_subport(struct rte_cfgfile *cfg, struct rte_sched_subport_params *subpo
 
 			/* Parse WRED min thresholds */
 			snprintf(str, sizeof(str), "tc %d wred min", i);
-			entry = rte_cfgfile_get_entry(cfg, sec_name, str);
-			if (entry) {
-				char *next;
-				/* for each packet colour (green, yellow, red) */
-				for (j = 0; j < RTE_COLORS; j++) {
-					red_params[i][j].min_th
-						= (uint16_t)strtol(entry, &next, 10);
-					if (next == NULL)
-						break;
-					entry = next;
-				}
-			}
+//			entry = rte_cfgfile_get_entry(cfg, sec_name, str);
+//			if (entry) {
+//				char *next;
+//				/* for each packet colour (green, yellow, red) */
+//				for (j = 0; j < RTE_COLORS; j++) {
+//					red_params[i][j].min_th
+//						= (uint16_t)strtol(entry, &next, 10);
+//					if (next == NULL)
+//						break;
+//					entry = next;
+//				}
+//			}
 
 			/* Parse WRED max thresholds */
 			snprintf(str, sizeof(str), "tc %d wred max", i);
-			entry = rte_cfgfile_get_entry(cfg, "red", str);
-			if (entry) {
-				char *next;
-				/* for each packet colour (green, yellow, red) */
-				for (j = 0; j < RTE_COLORS; j++) {
-					red_params[i][j].max_th
-						= (uint16_t)strtol(entry, &next, 10);
-					if (next == NULL)
-						break;
-					entry = next;
-				}
-			}
+//			entry = rte_cfgfile_get_entry(cfg, "red", str);
+//			if (entry) {
+//				char *next;
+//				/* for each packet colour (green, yellow, red) */
+//				for (j = 0; j < RTE_COLORS; j++) {
+//					red_params[i][j].max_th
+//						= (uint16_t)strtol(entry, &next, 10);
+//					if (next == NULL)
+//						break;
+//					entry = next;
+//				}
+//			}
 
 			/* Parse WRED inverse mark probabilities */
 			snprintf(str, sizeof(str), "tc %d wred inv prob", i);
-			entry = rte_cfgfile_get_entry(cfg, "red", str);
-			if (entry) {
-				char *next;
-				/* for each packet colour (green, yellow, red) */
-				for (j = 0; j < RTE_COLORS; j++) {
-					red_params[i][j].maxp_inv
-						= (uint8_t)strtol(entry, &next, 10);
-
-					if (next == NULL)
-						break;
-					entry = next;
-				}
-			}
+//			entry = rte_cfgfile_get_entry(cfg, "red", str);
+//			if (entry) {
+//				char *next;
+//				/* for each packet colour (green, yellow, red) */
+//				for (j = 0; j < RTE_COLORS; j++) {
+//					red_params[i][j].maxp_inv
+//						= (uint8_t)strtol(entry, &next, 10);
+//
+//					if (next == NULL)
+//						break;
+//					entry = next;
+//				}
+//			}
 
 			/* Parse WRED EWMA filter weights */
 			snprintf(str, sizeof(str), "tc %d wred weight", i);
-			entry = rte_cfgfile_get_entry(cfg, "red", str);
-			if (entry) {
-				char *next;
-				/* for each packet colour (green, yellow, red) */
-				for (j = 0; j < RTE_COLORS; j++) {
-					red_params[i][j].wq_log2
-						= (uint8_t)strtol(entry, &next, 10);
-					if (next == NULL)
-						break;
-					entry = next;
-				}
-			}
+//			entry = rte_cfgfile_get_entry(cfg, "red", str);
+//			if (entry) {
+//				char *next;
+//				/* for each packet colour (green, yellow, red) */
+//				for (j = 0; j < RTE_COLORS; j++) {
+//					red_params[i][j].wq_log2
+//						= (uint8_t)strtol(entry, &next, 10);
+//					if (next == NULL)
+//						break;
+//					entry = next;
+//				}
+//			}
 		}
 	}
 #endif /* RTE_SCHED_RED */
@@ -367,6 +367,7 @@ cfg_load_subport(struct rte_cfgfile *cfg, struct rte_sched_subport_params *subpo
 					}
 				}
 			}
+/*
 #ifdef RTE_SCHED_RED
 			for (j = 0; j < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; j++) {
 				for (k = 0; k < RTE_COLORS; k++) {
@@ -381,6 +382,7 @@ cfg_load_subport(struct rte_cfgfile *cfg, struct rte_sched_subport_params *subpo
 				}
 			}
 #endif
+*/
 		}
 	}
 
