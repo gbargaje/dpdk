@@ -62,9 +62,9 @@ extern "C" {
 #include <rte_meter.h>
 
 /** Random Early Detection (RED) */
-#ifdef RTE_SCHED_RED
-#include "rte_red.h"
-#endif
+//#ifdef RTE_SCHED_RED
+#include "rte_pie.h"
+//#endif
 
 /** Maximum number of queues per pipe.
  * Note that the multiple queues (power of 2) can only be assigned to
@@ -188,7 +188,7 @@ struct rte_sched_subport_params {
 
 #ifdef RTE_SCHED_RED
 	/** RED parameters */
-	struct rte_red_params red_params[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
+	struct rte_pie_config red_params[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
 #endif
 };
 

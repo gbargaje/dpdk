@@ -2223,7 +2223,7 @@ wred_profiles_set(struct rte_eth_dev *dev, uint32_t subport_id)
 
 	for (tc_id = 0; tc_id < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; tc_id++)
 		for (color = RTE_COLOR_GREEN; color < RTE_COLORS; color++) {
-			struct rte_red_params *dst =
+			struct rte_pie_config *dst =
 				&pp->red_params[tc_id][color];
 			struct tm_wred_profile *src_wp =
 				tm_tc_wred_profile_get(dev, tc_id);

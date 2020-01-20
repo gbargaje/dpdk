@@ -42,6 +42,7 @@
 #define RTE_SCHED_PIPE_INVALID                UINT32_MAX
 #define RTE_SCHED_BMP_POS_INVALID             UINT32_MAX
 
+#define TIMER_RESOLUTION_CYCLES 10000000ULL /* around 05 ms at 2 Ghz */
 /* Scaling for cycles_per_byte calculation
  * Chosen so that minimum rate is 480 bit/sec
  */
@@ -89,9 +90,11 @@ struct rte_sched_queue {
 
 struct rte_sched_queue_extra {
 	struct rte_sched_queue_stats stats;
+/*
 #ifdef RTE_SCHED_RED
 	struct rte_red red;
 #endif
+*/
 };
 
 enum grinder_state {
@@ -176,7 +179,7 @@ struct rte_sched_subport {
 	uint16_t qsize[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE];
 
 #ifdef RTE_SCHED_RED
-	struct rte_red_config red_config[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
+	struct rte_pie_config red_config[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
 #endif
 
 	/* Scheduling loop detection */
@@ -1061,29 +1064,45 @@ rte_sched_subport_config(struct rte_sched_port *port,
 	s->n_max_pipe_profiles = params->n_max_pipe_profiles;
 
 #ifdef RTE_SCHED_RED
+	static struct rte_timer timer[RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE][RTE_COLORS];
+	uint64_t hz;
+	unsigned lcore_id;
+
+	rte_timer_subsystem_init();
+
 	for (i = 0; i < RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE; i++) {
 		uint32_t j;
 
-		for (j = 0; j < RTE_COLORS; j++) {
-			/* if min/max are both zero, then RED is disabled */
-			if ((params->red_params[i][j].min_th |
+		for (j = 0; j < RTE_COLORS; j++){
+			rte_pie_config_init(&s->red_config[i][j]);
+
+			rte_timer_init(&timer[i][j]);
+			hz = rte_get_timer_hz() * 15 / 1000; //convert it to 15 milliseconds
+			lcore_id = rte_lcore_id();
+			rte_timer_reset(&timer[i][j], hz, PERIODICAL,
+					lcore_id, rte_pie_calculate_drop_prob,(void *) &s->red_config[i][j]);
+		}
+
+		/* if min/max are both zero, then RED is disabled */
+			/*if ((params->red_params[i][j].min_th |
 			     params->red_params[i][j].max_th) == 0) {
 				continue;
 			}
 
-			if (rte_red_config_init(&s->red_config[i][j],
+			if (rte_pie_config_init(&s->red_config[i][j]) {,
 				params->red_params[i][j].wq_log2,
 				params->red_params[i][j].min_th,
 				params->red_params[i][j].max_th,
-				params->red_params[i][j].maxp_inv) != 0) {
+				params->red_params[i][j].maxp_inv) != 0){
 				rte_sched_free_memory(port, n_subports);
 
 				RTE_LOG(NOTICE, SCHED,
 				"%s: RED configuration init fails\n", __func__);
 				return -EINVAL;
 			}
-		}
+		} */
 	}
+
 #endif
 
 	/* Scheduling loop detection */
@@ -1583,9 +1602,9 @@ rte_sched_port_red_drop(struct rte_sched_port *port,
 	uint32_t qindex,
 	uint16_t qlen)
 {
-	struct rte_sched_queue_extra *qe;
-	struct rte_red_config *red_cfg;
-	struct rte_red *red;
+	//struct rte_sched_queue_extra *qe;
+	struct rte_pie_config *red_cfg;
+	//struct rte_red *red;
 	uint32_t tc_index;
 	enum rte_color color;
 
@@ -1593,23 +1612,24 @@ rte_sched_port_red_drop(struct rte_sched_port *port,
 	color = rte_sched_port_pkt_read_color(pkt);
 	red_cfg = &subport->red_config[tc_index][color];
 
-	if ((red_cfg->min_th | red_cfg->max_th) == 0)
+	/*if ((red_cfg->min_th | red_cfg->max_th) == 0)
 		return 0;
+*/
+	//qe = subport->queue_extra + qindex;
+	//red = &qe->red;
 
-	qe = subport->queue_extra + qindex;
-	red = &qe->red;
-
-	return rte_red_enqueue(red_cfg, red, qlen, port->time);
+	//return rte_red_enqueue(red_cfg, red, qlen, port->time);
+	return rte_pie_enque(red_cfg, qlen);//
 }
 
 static inline void
-rte_sched_port_set_queue_empty_timestamp(struct rte_sched_port *port,
-	struct rte_sched_subport *subport, uint32_t qindex)
+rte_sched_port_set_queue_empty_timestamp(struct rte_sched_port *port __rte_unused,
+	struct rte_sched_subport *subport __rte_unused, uint32_t qindex __rte_unused)
 {
-	struct rte_sched_queue_extra *qe = subport->queue_extra + qindex;
-	struct rte_red *red = &qe->red;
+	//struct rte_sched_queue_extra *qe = subport->queue_extra + qindex;
+	//struct rte_red *red = &qe->red;
 
-	rte_red_mark_queue_empty(red, port->time);
+	//rte_red_mark_queue_empty(red, port->time);
 }
 
 #else
@@ -1715,11 +1735,21 @@ rte_sched_port_enqueue_qwa(struct rte_sched_port *port,
 	struct rte_sched_queue *q;
 	uint16_t qsize;
 	uint16_t qlen;
-
+	pkt->timestamp = rte_get_tsc_cycles();
 	q = subport->queue + qindex;
 	qsize = rte_sched_subport_pipe_qsize(port, subport, qindex);
 	qlen = q->qw - q->qr;
 
+#ifdef RTE_SCHED_RED
+	static uint64_t prev_tsc = 0, cur_tsc, diff_tsc;
+	cur_tsc = rte_rdtsc();
+	diff_tsc = cur_tsc - prev_tsc;
+	if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
+		rte_timer_manage();
+		prev_tsc = cur_tsc;
+		printf("Timer Manage..\n");
+	}
+#endif
 	/* Drop the packet (and update drop stats) when queue is full */
 	if (unlikely(rte_sched_port_red_drop(port, subport, pkt, qindex, qlen) ||
 		     (qlen >= qsize))) {
@@ -1806,14 +1836,12 @@ rte_sched_port_enqueue(struct rte_sched_port *port, struct rte_mbuf **pkts,
 		/* Prefetch the write pointer location of each queue */
 		for (i = 0; i < n_pkts; i++) {
 			q_base[i] = rte_sched_subport_pipe_qbase(subports[i], q[i]);
-			rte_sched_port_enqueue_qwa_prefetch0(port, subports[i],
-				q[i], q_base[i]);
+			rte_sched_port_enqueue_qwa_prefetch0(port, subports[i], q[i], q_base[i]);
 		}
 
 		/* Write each packet to its queue */
 		for (i = 0; i < n_pkts; i++)
-			result += rte_sched_port_enqueue_qwa(port, subports[i],
-						q[i], q_base[i], pkts[i]);
+			result += rte_sched_port_enqueue_qwa(port, subports[i], q[i], q_base[i], pkts[i]);
 
 		return result;
 	}
@@ -1882,10 +1910,8 @@ rte_sched_port_enqueue(struct rte_sched_port *port, struct rte_mbuf **pkts,
 		/* Stage 1: Prefetch subport and queue structure storing queue pointers */
 		subport10 = rte_sched_port_subport(port, pkt10);
 		subport11 = rte_sched_port_subport(port, pkt11);
-		q10 = rte_sched_port_enqueue_qptrs_prefetch0(subport10,
-				pkt10, subport_qmask);
-		q11 = rte_sched_port_enqueue_qptrs_prefetch0(subport11,
-				pkt11, subport_qmask);
+		q10 = rte_sched_port_enqueue_qptrs_prefetch0(subport10, pkt10, subport_qmask);
+		q11 = rte_sched_port_enqueue_qptrs_prefetch0(subport11, pkt11, subport_qmask);
 
 		/* Stage 2: Prefetch queue write location */
 		q20_base = rte_sched_subport_pipe_qbase(subport20, q20);
@@ -1894,10 +1920,8 @@ rte_sched_port_enqueue(struct rte_sched_port *port, struct rte_mbuf **pkts,
 		rte_sched_port_enqueue_qwa_prefetch0(port, subport21, q21, q21_base);
 
 		/* Stage 3: Write packet to queue and activate queue */
-		r30 = rte_sched_port_enqueue_qwa(port, subport30,
-				q30, q30_base, pkt30);
-		r31 = rte_sched_port_enqueue_qwa(port, subport31,
-				q31, q31_base, pkt31);
+		r30 = rte_sched_port_enqueue_qwa(port, subport30, q30, q30_base, pkt30);
+		r31 = rte_sched_port_enqueue_qwa(port, subport31, q31, q31_base, pkt31);
 		result += r30 + r31;
 	}
 
@@ -1911,50 +1935,39 @@ rte_sched_port_enqueue(struct rte_sched_port *port, struct rte_mbuf **pkts,
 
 	subport00 = rte_sched_port_subport(port, pkt00);
 	subport01 = rte_sched_port_subport(port, pkt01);
-	q00 = rte_sched_port_enqueue_qptrs_prefetch0(subport00,
-			pkt00, subport_qmask);
-	q01 = rte_sched_port_enqueue_qptrs_prefetch0(subport01,
-			pkt01, subport_qmask);
+	q00 = rte_sched_port_enqueue_qptrs_prefetch0(subport00, pkt00, subport_qmask);
+	q01 = rte_sched_port_enqueue_qptrs_prefetch0(subport01, pkt01, subport_qmask);
 
 	q10_base = rte_sched_subport_pipe_qbase(subport10, q10);
 	q11_base = rte_sched_subport_pipe_qbase(subport11, q11);
 	rte_sched_port_enqueue_qwa_prefetch0(port, subport10, q10, q10_base);
 	rte_sched_port_enqueue_qwa_prefetch0(port, subport11, q11, q11_base);
 
-	r20 = rte_sched_port_enqueue_qwa(port, subport20,
-			q20, q20_base, pkt20);
-	r21 = rte_sched_port_enqueue_qwa(port, subport21,
-			q21, q21_base, pkt21);
+	r20 = rte_sched_port_enqueue_qwa(port, subport20, q20, q20_base, pkt20);
+	r21 = rte_sched_port_enqueue_qwa(port, subport21, q21, q21_base, pkt21);
 	result += r20 + r21;
 
 	subport_last = rte_sched_port_subport(port, pkt_last);
-	q_last = rte_sched_port_enqueue_qptrs_prefetch0(subport_last,
-				pkt_last, subport_qmask);
+	q_last = rte_sched_port_enqueue_qptrs_prefetch0(subport_last, pkt_last, subport_qmask);
 
 	q00_base = rte_sched_subport_pipe_qbase(subport00, q00);
 	q01_base = rte_sched_subport_pipe_qbase(subport01, q01);
 	rte_sched_port_enqueue_qwa_prefetch0(port, subport00, q00, q00_base);
 	rte_sched_port_enqueue_qwa_prefetch0(port, subport01, q01, q01_base);
 
-	r10 = rte_sched_port_enqueue_qwa(port, subport10, q10,
-			q10_base, pkt10);
-	r11 = rte_sched_port_enqueue_qwa(port, subport11, q11,
-			q11_base, pkt11);
+	r10 = rte_sched_port_enqueue_qwa(port, subport10, q10, q10_base, pkt10);
+	r11 = rte_sched_port_enqueue_qwa(port, subport11, q11, q11_base, pkt11);
 	result += r10 + r11;
 
 	q_last_base = rte_sched_subport_pipe_qbase(subport_last, q_last);
-	rte_sched_port_enqueue_qwa_prefetch0(port, subport_last,
-		q_last, q_last_base);
+	rte_sched_port_enqueue_qwa_prefetch0(port, subport_last, q_last, q_last_base);
 
-	r00 = rte_sched_port_enqueue_qwa(port, subport00, q00,
-			q00_base, pkt00);
-	r01 = rte_sched_port_enqueue_qwa(port, subport01, q01,
-			q01_base, pkt01);
+	r00 = rte_sched_port_enqueue_qwa(port, subport00, q00, q00_base, pkt00);
+	r01 = rte_sched_port_enqueue_qwa(port, subport01, q01, q01_base, pkt01);
 	result += r00 + r01;
 
 	if (n_pkts & 1) {
-		r_last = rte_sched_port_enqueue_qwa(port, subport_last,
-					q_last,	q_last_base, pkt_last);
+		r_last = rte_sched_port_enqueue_qwa(port, subport_last, q_last,	q_last_base, pkt_last);
 		result += r_last;
 	}
 
@@ -2716,6 +2729,23 @@ rte_sched_port_dequeue(struct rte_sched_port *port, struct rte_mbuf **pkts, uint
 
 	port->pkts_out = pkts;
 	port->n_pkts_out = 0;
+	uint32_t subport_qmask = (1 << (port->n_pipes_per_subport_log2 + 4)) - 1;
+
+	/*  record the dequeue time of the packet */
+	for(uint32_t i = 0; i < n_pkts; i++)
+	{
+		struct rte_pie_config *red_cfg;
+		uint32_t tc_index;
+		enum rte_color color;
+		subport = rte_sched_port_subport(port, pkts[i]);
+
+		uint32_t qindex = rte_mbuf_sched_queue_get(pkts[i]) & subport_qmask;
+		tc_index = rte_sched_port_pipe_tc(port, qindex);
+		color = rte_sched_port_pkt_read_color(pkts[i]);
+		red_cfg = &subport->red_config[tc_index][color];
+		uint64_t pkt_timestamp = pkts[i]->timestamp;
+		rte_pie_deque(red_cfg, pkt_timestamp);
+	}
 
 	rte_sched_port_time_resync(port);
 

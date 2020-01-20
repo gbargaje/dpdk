@@ -21,9 +21,9 @@ EXPORT_MAP := rte_sched_version.map
 #
 # all source are stored in SRCS-y
 #
-SRCS-$(CONFIG_RTE_LIBRTE_SCHED) += rte_sched.c rte_red.c rte_approx.c
+SRCS-$(CONFIG_RTE_LIBRTE_SCHED) += rte_sched.c rte_red.c rte_pie.c rte_approx.c
 
 # install includes
-SYMLINK-$(CONFIG_RTE_LIBRTE_SCHED)-include := rte_sched.h rte_sched_common.h rte_red.h rte_approx.h
+SYMLINK-$(CONFIG_RTE_LIBRTE_SCHED)-include := rte_sched.h rte_sched_common.h rte_red.h rte_pie.h rte_approx.h
 
 include $(RTE_SDK)/mk/rte.lib.mk
